@@ -1,0 +1,115 @@
+# ==========================================
+# Civic Connect - Root .gitignore
+# ==========================================
+
+# ------------------------------------------
+# Environment & Sensitive Credentials
+# ------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+secrets.json
+
+# ------------------------------------------
+# Python Backend
+# ------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache/
+.coverage
+htmlcov/
+*.sqlite
+*.sqlite3
+*.db
+
+# ------------------------------------------
+# Flutter / Dart Frontend
+# ------------------------------------------
+# Build artifacts & tools
+.dart_tool/
+**/build/
+build/
+.pub-cache/
+.pub/
+/coverage/
+
+# Flutter plugin dependencies & generated files
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+
+# Android specific
+**/android/local.properties
+**/android/.gradle
+**/android/captures/
+**/android/app/debug
+**/android/app/profile
+**/android/app/release
+**/android/app/build/
+**/android/.cxx/
+**/android/app/.cxx/
+**/*.keystore
+**/*.jks
+
+# iOS / macOS specific
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Flutter/ephemeral/
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.*
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/macos/Flutter/ephemeral/
+**/macos/Flutter/GeneratedPluginRegistrant.swift
+**/macos/Pods/
+
+# Windows / Linux desktop ephemeral
+**/windows/flutter/ephemeral/
+**/linux/flutter/ephemeral/
+
+# Symbolication & Obfuscation
+*.symbols
+*.map.json
+
+# ------------------------------------------
+# IDEs & Editors
+# ------------------------------------------
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+*.swp
+*.swo
+*~
+
+# ------------------------------------------
+# Operating System & Office Temporary Files
+# ------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini
+~$*.docx
+~$*.xlsx
+~$*.pptx
+*.tmp
+*.log

@@ -1,0 +1,407 @@
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../../../core/models/models.dart';
+import '../../../core/services/api_service.dart';
+import '../../../core/providers/app_state.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/status_badge.dart';
+
+class ReportDetailScreen extends StatefulWidget {
+  final String publicId;
+
+  const ReportDetailScreen({super.key, required this.publicId});
+
+  @override
+  State<ReportDetailScreen> createState() => _ReportDetailScreenState();
+}
+
+class _ReportDetailScreenState extends State<ReportDetailScreen> {
+  final ApiService _api = ApiService();
+  CivicReport? _report;
+  bool _loading = true;
+  String? _errorMessage;
+
+  final TextEditingController _feedbackController = TextEditingController();
+  bool _verifying = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadReport();
+  }
+
+  Future<void> _loadReport() async {
+    setState(() => _loading = true);
+    try {
+      final rep = await _api.getReportDetail(widget.publicId);
+      setState(() {
+        _report = rep;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _handleVerification(bool isFixed) async {
+    if (_report == null) return;
+    setState(() => _verifying = true);
+
+    try {
+      await _api.verifyReport(
+        reportId: _report!.id,
+        isFixed: isFixed,
+        feedback: _feedbackController.text.trim().isEmpty ? (isFixed ? 'Confirmed fixed by citizen' : 'Problem still exists') : _feedbackController.text.trim(),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isFixed ? 'Thank you! Issue marked as RESOLVED.' : 'Ticket REOPENED and escalated for re-inspection.'),
+          backgroundColor: isFixed ? AppTheme.success : AppTheme.danger,
+        ),
+      );
+      await _loadReport();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Verification error: $e'), backgroundColor: AppTheme.danger),
+      );
+    } finally {
+      setState(() => _verifying = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final appState = Provider.of<AppState>(context, listen: false);
+
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: Colors.white));
+    }
+
+    if (_errorMessage != null || _report == null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 36, color: AppTheme.danger),
+            const SizedBox(height: 8),
+            Text('Could not load report ${widget.publicId}', style: const TextStyle(fontSize: 14)),
+            const SizedBox(height: 8),
+            ElevatedButton(onPressed: _loadReport, child: const Text('Retry')),
+          ],
+        ),
+      );
+    }
+
+    final report = _report!;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Back button and Public ID
+          Row(
+            children: [
+              IconButton(
+                onPressed: () => appState.closeReportDetail(),
+                icon: const Icon(Icons.arrow_back, size: 18),
+                style: IconButton.styleFrom(
+                  backgroundColor: AppTheme.bgCard,
+                  padding: const EdgeInsets.all(6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      report.publicId,
+                      style: GoogleFonts.outfit(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Text(
+                      '${report.departmentName ?? 'Municipal Authority'} • ${report.wardName ?? 'Ward 123'}',
+                      style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              StatusBadge(status: report.status),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Main Info Card
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppTheme.bgCard,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: AppTheme.borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                      child: Text(
+                        report.categoryName ?? 'Civic Issue',
+                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    if (report.slaInfo != null)
+                      Text(
+                        report.slaInfo!.label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: report.slaInfo!.isBreached ? AppTheme.danger : AppTheme.success,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  report.title,
+                  style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  report.description,
+                  style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary, height: 1.4),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const Icon(Icons.location_on_outlined, size: 14, color: AppTheme.textSecondary),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        report.address ?? '${report.latitude.toStringAsFixed(4)}, ${report.longitude.toStringAsFixed(4)}',
+                        style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // CITIZEN VERIFICATION WIDGET (Blueprint Section 23)
+          if (report.status == 'RESOLUTION_SUBMITTED') ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.bgCard,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: AppTheme.warning, width: 1.5),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.verified_outlined, color: AppTheme.warning, size: 18),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Citizen Resolution Verification',
+                        style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Field team marked this issue as resolved. Is the problem fixed on your street?',
+                    style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                  ),
+                  const SizedBox(height: 10),
+
+                  TextField(
+                    controller: _feedbackController,
+                    decoration: const InputDecoration(
+                      hintText: 'Optional verification feedback...',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _verifying ? null : () => _handleVerification(true),
+                          icon: const Icon(Icons.check, size: 14),
+                          label: const Text('✓ Yes, Fixed', style: TextStyle(fontSize: 12)),
+                          style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success, foregroundColor: Colors.white),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _verifying ? null : () => _handleVerification(false),
+                          icon: const Icon(Icons.close, size: 14),
+                          label: const Text('✗ Still Exists', style: TextStyle(fontSize: 12)),
+                          style: OutlinedButton.styleFrom(foregroundColor: AppTheme.danger, side: const BorderSide(color: AppTheme.danger)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Proof of Work: Before & After Photos
+          if (report.resolutionBeforePhoto != null || report.resolutionAfterPhoto != null || report.thumbnailUrl != null) ...[
+            Text('PHOTO EVIDENCE & REPAIR PROOF', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppTheme.textMuted, letterSpacing: 0.8)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (report.resolutionBeforePhoto != null || report.thumbnailUrl != null)
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('BEFORE REPAIR', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppTheme.warning)),
+                        const SizedBox(height: 4),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: CachedNetworkImage(
+                            imageUrl: report.resolutionBeforePhoto ?? report.thumbnailUrl!,
+                            height: 120,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (report.resolutionAfterPhoto != null) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('AFTER PROOF', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppTheme.success)),
+                        const SizedBox(height: 4),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: CachedNetworkImage(
+                            imageUrl: report.resolutionAfterPhoto!,
+                            height: 120,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            if (report.resolutionNotes != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.bgSecondary,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                ),
+                child: Text(
+                  'Worker Notes: ${report.resolutionNotes!}',
+                  style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                ),
+              ),
+            ],
+            const SizedBox(height: 18),
+          ],
+
+          // Timeline
+          Text('IMMUTABLE AUDIT TIMELINE', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppTheme.textMuted, letterSpacing: 0.8)),
+          const SizedBox(height: 8),
+
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppTheme.bgCard,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: AppTheme.borderSubtle),
+            ),
+            child: ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: report.timeline.length,
+              separatorBuilder: (c, i) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final ev = report.timeline[index];
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      margin: const EdgeInsets.only(top: 4),
+                      decoration: BoxDecoration(
+                        color: index == 0 ? Colors.white : AppTheme.success,
+                        shape: BoxShape.rectangle,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                ev.notes ?? ev.eventType,
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white),
+                              ),
+                              Text(
+                                ev.actorName ?? 'System',
+                                style: const TextStyle(fontSize: 10, color: AppTheme.textMuted),
+                              ),
+                            ],
+                          ),
+                          if (ev.newStatus != null)
+                            Text(
+                              'Status transition: ${ev.oldStatus ?? "START"} → ${ev.newStatus}',
+                              style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
