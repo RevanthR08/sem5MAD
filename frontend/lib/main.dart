@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/providers/app_state.dart';
+import 'core/providers/theme_controller.dart';
 import 'core/theme/app_theme.dart';
 import 'shared/widgets/custom_header.dart';
 import 'features/auth/screens/auth_screen.dart';
@@ -10,6 +11,8 @@ import 'features/reports/screens/report_wizard_screen.dart';
 import 'features/reports/screens/report_detail_screen.dart';
 import 'features/authority/screens/authority_dashboard_screen.dart';
 import 'features/field_worker/screens/field_worker_screen.dart';
+import 'features/admin/screens/admin_dashboard_screen.dart';
+import 'features/profile/screens/profile_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,6 +20,7 @@ void main() {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AppState()),
+        ChangeNotifierProvider(create: (_) => ThemeController()),
       ],
       child: const CivicConnectApp(),
     ),
@@ -28,11 +32,16 @@ class CivicConnectApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final themeController = Provider.of<ThemeController>(context);
+    final theme = themeController.resolveTheme();
     return MaterialApp(
       title: 'Civic Connect',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.darkTheme,
-      home: const RootGate(),
+      theme: theme,
+      themeAnimationDuration: Duration.zero,
+      // Screens read colors from AppTheme at build time, so remount the tree
+      // when the brightness changes. Session state lives in AppState and survives.
+      home: KeyedSubtree(key: ValueKey(theme.brightness), child: const RootGate()),
     );
   }
 }
@@ -59,124 +68,48 @@ class MainScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final appState = Provider.of<AppState>(context);
 
-    // Active screen routing based on AppState
+    // Each role only ever sees its own screens
+    final destinationIndexMap = appState.allowedTabs;
+    final activeTab = destinationIndexMap.contains(appState.activeTabIndex) ? appState.activeTabIndex : appState.homeTab;
+
     Widget currentBody;
     if (appState.selectedReportPublicId != null) {
       currentBody = ReportDetailScreen(publicId: appState.selectedReportPublicId!);
     } else {
-      switch (appState.activeTabIndex) {
-        case 0:
-          currentBody = const HomeScreen();
-          break;
-        case 1:
-          currentBody = const ExploreMapScreen();
-          break;
-        case 2:
-          currentBody = const ReportWizardScreen();
-          break;
-        case 3:
-          currentBody = const AuthorityDashboardScreen();
-          break;
-        case 4:
-          currentBody = const FieldWorkerScreen();
-          break;
-        default:
-          currentBody = const HomeScreen();
-      }
+      currentBody = switch (activeTab) {
+        AppTab.map => const ExploreMapScreen(),
+        AppTab.reportWizard => const ReportWizardScreen(),
+        AppTab.authority => const AuthorityDashboardScreen(),
+        AppTab.fieldOps => const FieldWorkerScreen(),
+        AppTab.admin => const AdminDashboardScreen(),
+        AppTab.profile => const ProfileScreen(),
+        _ => const HomeScreen(),
+      };
     }
 
-    // Role-Based Bottom Navigation Destinations
-    List<NavigationDestination> destinations = [];
-    List<int> destinationIndexMap = [];
-
-    if (appState.isCitizen) {
-      destinations = const [
-        NavigationDestination(
-          icon: Icon(Icons.home_outlined),
-          selectedIcon: Icon(Icons.home, color: Colors.white),
-          label: 'Home',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.map_outlined),
-          selectedIcon: Icon(Icons.map, color: Colors.white),
-          label: 'Explore Map',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.add_box_outlined, size: 24, color: Colors.white),
-          selectedIcon: Icon(Icons.add_box, size: 24, color: Colors.white),
-          label: 'Report',
-        ),
-      ];
-      destinationIndexMap = [0, 1, 2];
-    } else if (appState.isOfficer || appState.isAdmin) {
-      destinations = const [
-        NavigationDestination(
-          icon: Icon(Icons.shield_outlined),
-          selectedIcon: Icon(Icons.shield, color: Colors.white),
-          label: 'Authority',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.map_outlined),
-          selectedIcon: Icon(Icons.map, color: Colors.white),
-          label: 'Explore Map',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.home_outlined),
-          selectedIcon: Icon(Icons.home, color: Colors.white),
-          label: 'Citizen View',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.add_box_outlined, size: 24, color: Colors.white),
-          selectedIcon: Icon(Icons.add_box, size: 24, color: Colors.white),
-          label: 'Report',
-        ),
-      ];
-      destinationIndexMap = [3, 1, 0, 2];
-    } else {
-      // Field Worker
-      destinations = const [
-        NavigationDestination(
-          icon: Icon(Icons.construction_outlined),
-          selectedIcon: Icon(Icons.construction, color: Colors.white),
-          label: 'Field Ops',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.map_outlined),
-          selectedIcon: Icon(Icons.map, color: Colors.white),
-          label: 'Explore Map',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.add_box_outlined, size: 24, color: Colors.white),
-          selectedIcon: Icon(Icons.add_box, size: 24, color: Colors.white),
-          label: 'Report',
-        ),
-      ];
-      destinationIndexMap = [4, 1, 2];
-    }
-
-    int currentNavIndex = destinationIndexMap.indexOf(appState.activeTabIndex);
-    if (currentNavIndex == -1) currentNavIndex = 0;
+    final destinations = destinationIndexMap.map(_destinationFor).toList();
+    final currentNavIndex = destinationIndexMap.indexOf(activeTab);
 
     return Scaffold(
       appBar: const CustomHeader(),
       body: currentBody,
       bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: Colors.black, // Pure black bottom nav as requested
+        decoration: BoxDecoration(
+          color: AppTheme.inkInverse, // Black bar on dark theme, white on light
           border: Border(
             top: BorderSide(color: AppTheme.borderSubtle, width: 1),
           ),
         ),
         child: NavigationBarTheme(
           data: NavigationBarThemeData(
-            backgroundColor: Colors.black, // Pure black
-            indicatorColor: Colors.white.withValues(alpha: 0.12),
+            backgroundColor: AppTheme.inkInverse,
+            indicatorColor: AppTheme.ink.withValues(alpha: 0.12),
             indicatorShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)), // Almost square
             labelTextStyle: WidgetStateProperty.resolveWith((states) {
               if (states.contains(WidgetState.selected)) {
-                return const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white);
+                return TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.ink);
               }
-              return const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppTheme.textMuted);
+              return TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppTheme.textMuted);
             }),
           ),
           child: NavigationBar(
@@ -189,6 +122,23 @@ class MainScaffold extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  static NavigationDestination _destinationFor(int tab) {
+    final (IconData icon, IconData selected, String label) = switch (tab) {
+      AppTab.map => (Icons.map_outlined, Icons.map, 'Explore Map'),
+      AppTab.reportWizard => (Icons.add_box_outlined, Icons.add_box, 'Report'),
+      AppTab.authority => (Icons.shield_outlined, Icons.shield, 'Command Center'),
+      AppTab.fieldOps => (Icons.construction_outlined, Icons.construction, 'Field Ops'),
+      AppTab.admin => (Icons.admin_panel_settings_outlined, Icons.admin_panel_settings, 'Admin'),
+      AppTab.profile => (Icons.account_circle_outlined, Icons.account_circle, 'Profile'),
+      _ => (Icons.home_outlined, Icons.home, 'Home'),
+    };
+    return NavigationDestination(
+      icon: Icon(icon),
+      selectedIcon: Icon(selected, color: AppTheme.ink),
+      label: label,
     );
   }
 }

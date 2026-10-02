@@ -70,8 +70,10 @@ CREATE TABLE IF NOT EXISTS users (
     authority_id UUID REFERENCES authorities(id),
     ward_id UUID REFERENCES wards(id),
     avatar_url TEXT,
+    password_hash TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 
 -- Categories & Subcategories
 CREATE TABLE IF NOT EXISTS categories (

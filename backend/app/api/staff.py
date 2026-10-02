@@ -1,4 +1,6 @@
+from typing import Optional
 from fastapi import APIRouter
+from backend.app.core.actor import ROLE_ALIASES
 from backend.app.core.database import get_db
 
 router = APIRouter(prefix="/staff", tags=["Staff & Management"])
@@ -26,14 +28,16 @@ def list_wards():
         return cur.fetchall()
 
 @router.get("/workers")
-def list_workers():
+def list_workers(role: Optional[str] = None):
+    """Staff list; pass role=FIELD_WORKER to get only assignable field workers."""
+    roles = [ROLE_ALIASES.get(role.upper(), role.upper())] if role else ["FIELD_WORKER", "DEPARTMENT_OFFICER"]
     with get_db() as cur:
         cur.execute("""
             SELECT u.id, u.full_name, u.role, u.phone, u.avatar_url, d.name as department_name,
                    (SELECT COUNT(*) FROM reports r WHERE r.assigned_to = u.id AND r.status IN ('ASSIGNED', 'IN_PROGRESS')) as active_jobs
             FROM users u
             LEFT JOIN departments d ON u.department_id = d.id
-            WHERE u.role IN ('FIELD_WORKER', 'DEPARTMENT_OFFICER')
+            WHERE u.role = ANY(%s)
             ORDER BY u.full_name ASC;
-        """)
+        """, (roles,))
         return cur.fetchall()

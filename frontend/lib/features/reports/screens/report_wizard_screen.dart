@@ -55,7 +55,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
   final Map<String, List<Map<String, String>>> _categoryPresets = {
     'roads': [
       {'label': 'Pothole Crater', 'url': 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?w=800'},
-      {'label': 'Broken Footpath', 'url': 'https://images.unsplash.com/photo-1541888946425-d0fbb186156f?w=800'},
+      {'label': 'Broken Footpath', 'url': 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=800'},
     ],
     'lighting': [
       {'label': 'Streetlight Completely Off', 'url': 'https://images.unsplash.com/photo-1509114397022-ed747cca3f65?w=800'},
@@ -87,8 +87,10 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
 
   Future<void> _loadCategories() async {
     final appState = Provider.of<AppState>(context, listen: false);
+    setState(() => _loading = true);
     try {
       final cats = await _api.getCategories();
+      if (!mounted) return;
       setState(() {
         _categories = cats;
         if (appState.preselectedCategoryId != null) {
@@ -105,10 +107,21 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
         _updateCategoryDefaults();
         _loading = false;
       });
+      _onLocationChanged(_selectedLocation);
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
     }
   }
+
+  void _toast(String msg, {bool error = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: error ? AppTheme.danger : AppTheme.success),
+    );
+  }
+
+  String _errText(Object e) => e.toString().replaceFirst('Exception: ', '');
 
   void _updateCategoryDefaults() {
     if (_selectedCategory == null) return;
@@ -138,23 +151,17 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
 
       // Upload to Supabase Storage Bucket via FastAPI
       final publicUrl = await _api.uploadImage(base64String, filename: file.name);
+      if (!mounted) return;
 
       setState(() {
         _selectedPhotoUrl = publicUrl;
         _isUploadingPhoto = false;
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Photo uploaded to Supabase Storage bucket!'),
-          backgroundColor: AppTheme.success,
-        ),
-      );
+      _toast('Photo uploaded!');
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isUploadingPhoto = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Upload failed: $e'), backgroundColor: AppTheme.danger),
-      );
+      _toast('Upload failed: ${_errText(e)}', error: true);
     }
   }
 
@@ -162,9 +169,12 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
     setState(() => _selectedLocation = latLng);
     try {
       final res = await _api.reverseGeocode(latLng.latitude, latLng.longitude);
+      if (!mounted) return;
       setState(() {
         _addressText = res['address'] ?? '${latLng.latitude.toStringAsFixed(4)}, ${latLng.longitude.toStringAsFixed(4)}';
-        _wardName = res['ward_name'] ?? 'Ward 123 (Mylapore)';
+        final wardNumber = res['ward_number'];
+        final wardName = res['ward_name'];
+        _wardName = wardName == null ? 'Ward pending' : (wardNumber == null ? wardName : '$wardNumber ($wardName)');
       });
     } catch (e) {
       // Ignore
@@ -180,6 +190,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
         _selectedLocation.longitude,
         _selectedCategory!.id,
       );
+      if (!mounted) return;
       setState(() {
         _detectedDuplicates = dups;
         _isCheckingDuplicates = false;
@@ -191,6 +202,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
         setState(() => _currentStep = 5); // Review
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isCheckingDuplicates = false;
         _currentStep = 5;
@@ -210,7 +222,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)), // Almost square
           title: Row(
             children: [
-              const Icon(Icons.warning_amber_rounded, color: AppTheme.warning, size: 24),
+              Icon(Icons.warning_amber_rounded, color: AppTheme.warning, size: 24),
               const SizedBox(width: 8),
               Text('Similar Issue Nearby', style: GoogleFonts.outfit(fontWeight: FontWeight.w700, fontSize: 16)),
             ],
@@ -221,8 +233,8 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Civic Connect detected reports in this category within 50m of your location. Upvote the existing report to escalate it faster!',
+                Text(
+                  'Civic Connect detected open ${_selectedCategory?.name ?? ''} reports within ${_selectedCategory?.duplicateRadiusMeters ?? 50}m of your location. Upvote the existing report to escalate it faster!',
                   style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                 ),
                 const SizedBox(height: 12),
@@ -254,7 +266,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
                             children: [
                               Text(
                                 d.publicId,
-                                style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700),
+                                style: TextStyle(fontSize: 10, color: AppTheme.ink, fontWeight: FontWeight.w700),
                               ),
                               Text(
                                 d.title,
@@ -264,7 +276,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
                               ),
                               Text(
                                 '${d.distanceMeters.toStringAsFixed(0)}m away • ${d.status}',
-                                style: const TextStyle(fontSize: 10, color: AppTheme.textMuted),
+                                style: TextStyle(fontSize: 10, color: AppTheme.textMuted),
                               ),
                             ],
                           ),
@@ -272,8 +284,13 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
                         ElevatedButton.icon(
                           onPressed: () async {
                             Navigator.pop(ctx);
-                            await _api.upvoteReport(d.id);
-                            appState.openReportDetail(d.publicId);
+                            try {
+                              final r = await _api.upvoteReport(d.id);
+                              _toast(r.alreadyUpvoted ? 'You already support ${d.publicId}.' : 'Upvoted ${d.publicId} — no duplicate ticket created.');
+                              appState.openReportDetail(d.publicId);
+                            } catch (e) {
+                              _toast('Upvote failed: ${_errText(e)}', error: true);
+                            }
                           },
                           icon: const Icon(Icons.thumb_up, size: 12),
                           label: const Text('Upvote'),
@@ -298,7 +315,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
                   _currentStep = 5;
                 });
               },
-              child: const Text('Different Issue (Proceed)', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+              child: Text('Different Issue (Proceed)', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
             ),
           ],
         );
@@ -323,7 +340,6 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
         'severity': _severity,
         'is_anonymous': false,
         'reporter_name': appState.userName,
-        'reporter_contact': '+919876543210',
         'photo_urls': [_selectedPhotoUrl],
         'custom_fields': {
           'traffic_hazard': _trafficHazard,
@@ -331,27 +347,37 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
         }
       });
 
+      if (!mounted) return;
       setState(() => _isSubmitting = false);
       final publicId = res['public_id'];
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Report $publicId submitted to ${_selectedCategory?.name} department!'),
-          backgroundColor: AppTheme.success,
-        ),
-      );
+      _toast('Report $publicId submitted to ${res['routed_department'] ?? 'the department'}!');
       appState.openReportDetail(publicId);
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isSubmitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: AppTheme.danger),
-      );
+      _toast('Error: ${_errText(e)}', error: true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: Colors.white));
+      return Center(child: CircularProgressIndicator(color: AppTheme.ink));
+    }
+
+    if (_categories.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off, size: 36, color: AppTheme.danger),
+            const SizedBox(height: 8),
+            const Text('Could not load issue categories.', style: TextStyle(fontSize: 13)),
+            const SizedBox(height: 8),
+            ElevatedButton(onPressed: _loadCategories, child: const Text('Retry')),
+          ],
+        ),
+      );
     }
 
     return SingleChildScrollView(
@@ -386,7 +412,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
         children: [
           Text(
             'STEP $_currentStep OF 5: ${stepNames[_currentStep - 1].toUpperCase()}',
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.8),
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.ink, letterSpacing: 0.8),
           ),
           Row(
             children: List.generate(5, (idx) {
@@ -399,7 +425,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
                 height: 4,
                 margin: const EdgeInsets.only(left: 4),
                 decoration: BoxDecoration(
-                  color: isDone ? AppTheme.success : isActive ? Colors.white : AppTheme.borderSubtle,
+                  color: isDone ? AppTheme.success : isActive ? AppTheme.ink : AppTheme.borderSubtle,
                   borderRadius: BorderRadius.circular(1),
                 ),
               );
@@ -417,7 +443,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
       children: [
         Text('What problem do you want to report?', style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w700)),
         const SizedBox(height: 2),
-        const Text('Select category to trigger automated GIS department routing.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+        Text('Select category to trigger automated GIS department routing.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
         const SizedBox(height: 16),
 
         LayoutBuilder(
@@ -451,10 +477,10 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(
-                      color: isSelected ? Colors.white.withValues(alpha: 0.1) : AppTheme.bgCard,
+                      color: isSelected ? AppTheme.ink.withValues(alpha: 0.1) : AppTheme.bgCard,
                       borderRadius: BorderRadius.circular(4),
                       border: Border.all(
-                        color: isSelected ? Colors.white : AppTheme.borderSubtle,
+                        color: isSelected ? AppTheme.ink : AppTheme.borderSubtle,
                         width: isSelected ? 1.5 : 1,
                       ),
                     ),
@@ -472,7 +498,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
                                           : cat.code == 'safety'
                                               ? Icons.warning_amber_rounded
                                               : Icons.construction,
-                          color: isSelected ? Colors.white : AppTheme.textSecondary,
+                          color: isSelected ? AppTheme.ink : AppTheme.textSecondary,
                           size: 18,
                         ),
                         const SizedBox(width: 8),
@@ -486,14 +512,14 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
                                 style: TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 12,
-                                  color: isSelected ? Colors.white : AppTheme.textSecondary,
+                                  color: isSelected ? AppTheme.ink : AppTheme.textSecondary,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                               Text(
                                 '${cat.defaultSlaHours}h SLA',
-                                style: const TextStyle(fontSize: 10, color: AppTheme.textMuted),
+                                style: TextStyle(fontSize: 10, color: AppTheme.textMuted),
                               ),
                             ],
                           ),
@@ -522,9 +548,9 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
                 selected: isSel,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                 backgroundColor: AppTheme.bgCard,
-                selectedColor: Colors.white,
+                selectedColor: AppTheme.ink,
                 labelStyle: TextStyle(
-                  color: isSel ? Colors.black : AppTheme.textSecondary,
+                  color: isSel ? AppTheme.inkInverse : AppTheme.textSecondary,
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                 ),
@@ -561,7 +587,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
       children: [
         Text('Step 2: Pin Location on Map', style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w700)),
         const SizedBox(height: 2),
-        const Text('Tap or drag the map pin. PostGIS reverse geocodes the exact Ward.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+        Text('Tap or drag the map pin. PostGIS reverse geocodes the exact Ward.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
         const SizedBox(height: 14),
 
         // Map container
@@ -589,7 +615,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
                     point: _selectedLocation,
                     width: 36,
                     height: 36,
-                    child: const Icon(Icons.location_on, size: 36, color: AppTheme.danger),
+                    child: Icon(Icons.location_on, size: 36, color: AppTheme.danger),
                   ),
                 ],
               ),
@@ -608,14 +634,14 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
           ),
           child: Row(
             children: [
-              const Icon(Icons.pin_drop_outlined, color: Colors.white, size: 20),
+              Icon(Icons.pin_drop_outlined, color: AppTheme.ink, size: 20),
               const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(_addressText, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
-                    Text('Auto-routed: $_wardName • Greater Chennai Corporation', style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
+                    Text('Auto-routed: $_wardName • Greater Chennai Corporation', style: TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
                   ],
                 ),
               ),
@@ -661,7 +687,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
         const SizedBox(height: 2),
         Text(
           'Upload photo of the ${_selectedCategory?.name ?? "issue"}. Stored in your Supabase S3 bucket.',
-          style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
         ),
         const SizedBox(height: 16),
 
@@ -676,11 +702,11 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
           ),
           clipBehavior: Clip.antiAlias,
           child: _isUploadingPhoto
-              ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(color: Colors.white), SizedBox(height: 8), Text('Uploading to Supabase S3 bucket...', style: TextStyle(fontSize: 11))]))
+              ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(color: AppTheme.ink), SizedBox(height: 8), Text('Uploading to Supabase S3 bucket...', style: TextStyle(fontSize: 11))]))
               : CachedNetworkImage(
                   imageUrl: _selectedPhotoUrl,
                   fit: BoxFit.cover,
-                  placeholder: (c, u) => const Center(child: CircularProgressIndicator(color: Colors.white)),
+                  placeholder: (c, u) => Center(child: CircularProgressIndicator(color: AppTheme.ink)),
                   errorWidget: (c, u, e) => const Center(child: Icon(Icons.image_not_supported_outlined, size: 36)),
                 ),
         ),
@@ -711,7 +737,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
         const SizedBox(height: 14),
 
         // Category-Specific Presets (Aligned with the chosen category!)
-        Text('Or select a preset for ${_selectedCategory?.name ?? "this issue"}:', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.textMuted)),
+        Text('Or select a preset for ${_selectedCategory?.name ?? "this issue"}:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.textMuted)),
         const SizedBox(height: 8),
 
         Wrap(
@@ -720,16 +746,16 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
           children: presets.map((p) {
             final isSel = _selectedPhotoUrl == p['url'];
             return ActionChip(
-              avatar: isSel ? const Icon(Icons.check, size: 14, color: Colors.black) : null,
+              avatar: isSel ? Icon(Icons.check, size: 14, color: AppTheme.inkInverse) : null,
               label: Text(p['label']!),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-              backgroundColor: isSel ? Colors.white : AppTheme.bgCard,
+              backgroundColor: isSel ? AppTheme.ink : AppTheme.bgCard,
               labelStyle: TextStyle(
-                color: isSel ? Colors.black : AppTheme.textSecondary,
+                color: isSel ? AppTheme.inkInverse : AppTheme.textSecondary,
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
               ),
-              side: BorderSide(color: isSel ? Colors.white : AppTheme.borderSubtle),
+              side: BorderSide(color: isSel ? AppTheme.ink : AppTheme.borderSubtle),
               onPressed: () {
                 setState(() => _selectedPhotoUrl = p['url']!);
               },
@@ -763,7 +789,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
       children: [
         Text('Step 4: Issue Description & Priority', style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w700)),
         const SizedBox(height: 2),
-        const Text('Details are forwarded directly to the municipal engineer dispatch desk.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+        Text('Details are forwarded directly to the municipal engineer dispatch desk.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
         const SizedBox(height: 16),
 
         TextField(
@@ -795,7 +821,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
         const SizedBox(height: 16),
 
         // Severity Selector
-        const Text('SEVERITY LEVEL', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.textSecondary, letterSpacing: 0.5)),
+        Text('SEVERITY LEVEL', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.textSecondary, letterSpacing: 0.5)),
         const SizedBox(height: 6),
         Row(
           children: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map((s) {
@@ -807,9 +833,9 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
                 selected: isSel,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                 backgroundColor: AppTheme.bgCard,
-                selectedColor: Colors.white,
+                selectedColor: AppTheme.ink,
                 labelStyle: TextStyle(
-                  color: isSel ? Colors.black : AppTheme.textSecondary,
+                  color: isSel ? AppTheme.inkInverse : AppTheme.textSecondary,
                   fontWeight: FontWeight.w700,
                   fontSize: 11,
                 ),
@@ -827,8 +853,8 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
         CheckboxListTile(
           title: const Text('Poses immediate traffic risk / pedestrian hazard', style: TextStyle(fontSize: 12)),
           value: _trafficHazard,
-          activeColor: Colors.white,
-          checkColor: Colors.black,
+          activeColor: AppTheme.ink,
+          checkColor: AppTheme.inkInverse,
           controlAffinity: ListTileControlAffinity.leading,
           contentPadding: EdgeInsets.zero,
           onChanged: (val) => setState(() => _trafficHazard = val ?? false),
@@ -836,8 +862,8 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
         CheckboxListTile(
           title: const Text('Corridor completely dark / obstructed walkway', style: TextStyle(fontSize: 12)),
           value: _dangerToPedestrians,
-          activeColor: Colors.white,
-          checkColor: Colors.black,
+          activeColor: AppTheme.ink,
+          checkColor: AppTheme.inkInverse,
           controlAffinity: ListTileControlAffinity.leading,
           contentPadding: EdgeInsets.zero,
           onChanged: (val) => setState(() => _dangerToPedestrians = val ?? false),
@@ -854,7 +880,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
             ElevatedButton.icon(
               onPressed: _isCheckingDuplicates ? null : _checkForDuplicatesAndProceed,
               icon: _isCheckingDuplicates
-                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                  ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.inkInverse))
                   : const Icon(Icons.arrow_forward, size: 14),
               label: const Text('Next: Duplicate Check & Review'),
             ),
@@ -871,7 +897,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
       children: [
         Text('Step 5: Review & Submit Ticket', style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w700)),
         const SizedBox(height: 2),
-        const Text('Confirm your report details before dispatching to Greater Chennai Corporation.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+        Text('Confirm your report details before dispatching to Greater Chennai Corporation.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
         const SizedBox(height: 16),
 
         Container(
@@ -889,15 +915,15 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
                 children: [
                   Text(
                     _selectedCategory?.name ?? 'Civic Issue',
-                    style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white),
+                    style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.ink),
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.1),
+                      color: AppTheme.ink.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(3),
                     ),
-                    child: Text('$_severity PRIORITY', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
+                    child: Text('$_severity PRIORITY', style: TextStyle(color: AppTheme.ink, fontSize: 10, fontWeight: FontWeight.w700)),
                   ),
                 ],
               ),
@@ -910,16 +936,16 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
               const SizedBox(height: 4),
               Text(
                 _descController.text,
-                style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
               ),
               const SizedBox(height: 10),
 
               Row(
                 children: [
-                  const Icon(Icons.location_on, size: 14, color: Colors.white),
+                  Icon(Icons.location_on, size: 14, color: AppTheme.ink),
                   const SizedBox(width: 4),
                   Expanded(
-                    child: Text('$_addressText ($_wardName)', style: const TextStyle(fontSize: 11, color: AppTheme.textMuted)),
+                    child: Text('$_addressText ($_wardName)', style: TextStyle(fontSize: 11, color: AppTheme.textMuted)),
                   ),
                 ],
               ),
@@ -949,7 +975,7 @@ class _ReportWizardScreenState extends State<ReportWizardScreen> {
             ElevatedButton.icon(
               onPressed: _isSubmitting ? null : _submitFinalReport,
               icon: _isSubmitting
-                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                  ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.inkInverse))
                   : const Icon(Icons.send_rounded, size: 14),
               label: const Text('Submit Ticket to GCC'),
             ),

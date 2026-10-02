@@ -20,6 +20,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<CivicReport> _reports = [];
   AnalyticsOverview? _analytics;
   bool _loading = true;
+  bool _onlyMine = false;
 
   @override
   void initState() {
@@ -28,65 +29,69 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadData() async {
+    final userId = Provider.of<AppState>(context, listen: false).userId;
     setState(() => _loading = true);
     try {
-      final reports = await _api.getReports();
-      final analytics = await _api.getAnalyticsOverview();
+      // Fetch both in parallel
+      final (reports, analytics) = await (
+        _api.getReports(userId: _onlyMine ? userId : null),
+        _api.getAnalyticsOverview(),
+      ).wait;
+      if (!mounted) return;
       setState(() {
         _reports = reports;
         _analytics = analytics;
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load reports: ${e.toString().replaceFirst('Exception: ', '')}'), backgroundColor: AppTheme.danger),
+      );
     }
   }
 
   Future<void> _handleUpvote(String reportId) async {
     try {
-      final newCount = await _api.upvoteReport(reportId);
+      final result = await _api.upvoteReport(reportId);
+      if (!mounted) return;
       setState(() {
-        _reports = _reports.map((r) {
-          if (r.id == reportId) {
-            return CivicReport(
-              id: r.id,
-              publicId: r.publicId,
-              title: r.title,
-              description: r.description,
-              status: r.status,
-              priority: r.priority,
-              severity: r.severity,
-              latitude: r.latitude,
-              longitude: r.longitude,
-              address: r.address,
-              landmark: r.landmark,
-              categoryId: r.categoryId,
-              categoryName: r.categoryName,
-              categoryIcon: r.categoryIcon,
-              subcategoryName: r.subcategoryName,
-              departmentName: r.departmentName,
-              wardName: r.wardName,
-              wardNumber: r.wardNumber,
-              assignedTeam: r.assignedTeam,
-              assignedOfficerName: r.assignedOfficerName,
-              slaHours: r.slaHours,
-              slaInfo: r.slaInfo,
-              upvotes: newCount,
-              thumbnailUrl: r.thumbnailUrl,
-              resolutionBeforePhoto: r.resolutionBeforePhoto,
-              resolutionAfterPhoto: r.resolutionAfterPhoto,
-              resolutionNotes: r.resolutionNotes,
-              citizenVerified: r.citizenVerified,
-              citizenFeedback: r.citizenFeedback,
-              createdAt: r.createdAt,
-            );
-          }
-          return r;
-        }).toList();
+        _reports = _reports.map((r) => r.id == reportId ? r.copyWith(upvotes: result.upvotes) : r).toList();
       });
+      if (result.alreadyUpvoted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('You already support this report.')),
+        );
+      }
     } catch (e) {
-      // Ignore
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Upvote failed: ${e.toString().replaceFirst('Exception: ', '')}'), backgroundColor: AppTheme.danger),
+      );
     }
+  }
+
+  Widget _feedToggle(String label, bool mine) {
+    final sel = _onlyMine == mine;
+    return Padding(
+      padding: const EdgeInsets.only(left: 6),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: sel,
+        visualDensity: VisualDensity.compact,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+        backgroundColor: AppTheme.bgCard,
+        selectedColor: AppTheme.ink,
+        labelStyle: TextStyle(color: sel ? AppTheme.inkInverse : AppTheme.textSecondary, fontSize: 10, fontWeight: FontWeight.w700),
+        onSelected: (v) {
+          if (v && !sel) {
+            setState(() => _onlyMine = mine);
+            _loadData();
+          }
+        },
+      ),
+    );
   }
 
   @override
@@ -94,12 +99,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final appState = Provider.of<AppState>(context, listen: false);
 
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: Colors.white));
+      return Center(child: CircularProgressIndicator(color: AppTheme.ink));
     }
 
     return RefreshIndicator(
       onRefresh: _loadData,
-      color: Colors.white,
+      color: AppTheme.ink,
       backgroundColor: AppTheme.bgCard,
       child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -122,12 +127,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       Container(
                         width: 6,
                         height: 6,
-                        decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.rectangle),
+                        decoration: BoxDecoration(color: AppTheme.ink, shape: BoxShape.rectangle),
                       ),
                       const SizedBox(width: 6),
                       Text(
                         'WARD 123 • MYLAPORE & ANNA SALAI, GCC',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
                           color: AppTheme.textSecondary,
@@ -142,11 +147,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: GoogleFonts.outfit(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
-                      color: Colors.white,
+                      color: AppTheme.ink,
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
+                  Text(
                     'Report civic problems directly to GCC municipal engineers and verify repairs with photo proof.',
                     style: TextStyle(
                       fontSize: 12,
@@ -237,7 +242,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     _buildStatCol('ACTIVE', '${_analytics!.openReports + _analytics!.inProgress}'),
                     _buildStatCol('RESOLVED', '${_analytics!.resolvedReports}'),
                     _buildStatCol('SLA RATE', '${_analytics!.slaCompliancePct.toInt()}%'),
-                    _buildStatCol('VERIFIED', '100%'),
+                    _buildStatCol('TO VERIFY', '${_analytics!.awaitingVerification}'),
                   ],
                 ),
               ),
@@ -248,17 +253,33 @@ class _HomeScreenState extends State<HomeScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'NEARBY CIVIC REPORTS',
-                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppTheme.textMuted, letterSpacing: 0.8),
+                Expanded(
+                  child: Text(
+                    _onlyMine ? 'MY REPORTS' : 'NEARBY CIVIC REPORTS',
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppTheme.textMuted, letterSpacing: 0.8),
+                  ),
                 ),
-                Text(
-                  '${_reports.length} ACTIVE',
-                  style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700),
-                ),
+                _feedToggle('All', false),
+                _feedToggle('Mine', true),
               ],
             ),
+            const SizedBox(height: 4),
+            Text(
+              '${_reports.where((r) => r.isOpen).length} open of ${_reports.length}',
+              style: TextStyle(fontSize: 10, color: AppTheme.ink, fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 10),
+            if (_reports.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(color: AppTheme.bgCard, borderRadius: BorderRadius.circular(4)),
+                child: Text(
+                  _onlyMine ? "You haven't reported any issues yet." : 'No reports yet.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                ),
+              ),
 
             // Reports List
             ListView.separated(
@@ -294,11 +315,11 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: Colors.white, size: 18),
+            Icon(icon, color: AppTheme.ink, size: 18),
             const SizedBox(height: 4),
             Text(
               label,
-              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.textSecondary),
+              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.textSecondary),
             ),
           ],
         ),
@@ -311,12 +332,12 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Text(
           title,
-          style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: AppTheme.textMuted, letterSpacing: 0.5),
+          style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: AppTheme.textMuted, letterSpacing: 0.5),
         ),
         const SizedBox(height: 2),
         Text(
           val,
-          style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white),
+          style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.ink),
         ),
       ],
     );
@@ -341,7 +362,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Text(
                   report.publicId,
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white),
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.ink),
                 ),
                 StatusBadge(status: report.status),
               ],
@@ -350,14 +371,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
             Text(
               report.title,
-              style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white),
+              style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.ink),
             ),
             const SizedBox(height: 2),
             Text(
               report.description,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary, height: 1.4),
+              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, height: 1.4),
             ),
             const SizedBox(height: 8),
 
@@ -380,12 +401,12 @@ class _HomeScreenState extends State<HomeScreen> {
             // Address
             Row(
               children: [
-                const Icon(Icons.location_on_outlined, size: 12, color: AppTheme.textSecondary),
+                Icon(Icons.location_on_outlined, size: 12, color: AppTheme.textSecondary),
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
                     report.address ?? '${report.latitude.toStringAsFixed(4)}, ${report.longitude.toStringAsFixed(4)}',
-                    style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                    style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -399,7 +420,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Text(
                   report.slaInfo?.label ?? '${report.slaHours}h SLA',
-                  style: const TextStyle(fontSize: 10, color: AppTheme.textMuted),
+                  style: TextStyle(fontSize: 10, color: AppTheme.textMuted),
                 ),
                 InkWell(
                   onTap: () => _handleUpvote(report.id),
@@ -413,11 +434,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.thumb_up_outlined, size: 11, color: Colors.white),
+                        Icon(Icons.thumb_up_outlined, size: 11, color: AppTheme.ink),
                         const SizedBox(width: 4),
                         Text(
                           '${report.upvotes}',
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.ink),
                         ),
                       ],
                     ),

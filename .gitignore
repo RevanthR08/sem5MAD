@@ -51,8 +51,10 @@ build/
 .packages
 
 # Android specific
-**/android/local.properties
-**/android/.gradle
+**/local.properties
+local.properties
+**/.gradle/
+.gradle/
 **/android/captures/
 **/android/app/debug
 **/android/app/profile

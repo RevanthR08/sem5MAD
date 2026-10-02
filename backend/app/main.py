@@ -1,7 +1,10 @@
-from fastapi import FastAPI
+import logging
+import psycopg2
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from backend.app.core.config import settings
-from backend.app.api import categories, locations, reports, staff, analytics
+from backend.app.api import auth, categories, locations, reports, staff, analytics
 from backend.app.core.database import get_db
 
 app = FastAPI(
@@ -19,7 +22,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.exception_handler(psycopg2.OperationalError)
+async def database_unavailable(request: Request, exc: psycopg2.OperationalError):
+    # Network/DNS trouble reaching the hosted database after retries
+    logging.getLogger("uvicorn.error").warning("Database unavailable on %s: %s", request.url.path, str(exc).strip())
+    return JSONResponse(status_code=503, content={"detail": "Database temporarily unreachable. Please try again."})
+
 # Include Routers
+app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
 app.include_router(categories.router, prefix=settings.API_V1_PREFIX)
 app.include_router(locations.router, prefix=settings.API_V1_PREFIX)
 app.include_router(reports.router, prefix=settings.API_V1_PREFIX)

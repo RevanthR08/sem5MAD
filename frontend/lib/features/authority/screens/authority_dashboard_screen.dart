@@ -30,53 +30,75 @@ class _AuthorityDashboardScreenState extends State<AuthorityDashboardScreen> {
   Future<void> _loadData() async {
     setState(() => _loading = true);
     try {
-      final reps = await _api.getReports(status: _selectedFilter);
-      final an = await _api.getAnalyticsOverview();
+      // Fetch both in parallel
+      final (reps, an) = await (_api.getReports(status: _selectedFilter), _api.getAnalyticsOverview()).wait;
+      if (!mounted) return;
       setState(() {
         _reports = reps;
         _analytics = an;
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
+      _toast('Could not load queue: ${_errText(e)}', error: true);
     }
   }
 
-  Future<void> _quickAssign(CivicReport report) async {
+  void _toast(String msg, {bool error = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: error ? AppTheme.danger : AppTheme.success),
+    );
+  }
+
+  String _errText(Object e) => e.toString().replaceFirst('Exception: ', '');
+
+  Future<void> _assign(CivicReport report) async {
+    final worker = await showDialog<StaffMember>(
+      context: context,
+      builder: (ctx) => _AssignWorkerDialog(report: report, api: _api),
+    );
+    if (worker == null) return;
     try {
-      await _api.assignReport(
-        report.id,
-        'Roads Rapid Team 4 (Murugan S)',
-        '10000000-0000-0000-0000-000000000003',
-      );
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Assigned ${report.publicId} to Rapid Team 4!'), backgroundColor: AppTheme.success),
-      );
+      await _api.assignReport(report.id, worker.id, notes: 'Dispatched to ${worker.fullName}');
+      _toast('Assigned ${report.publicId} to ${worker.fullName}');
       _loadData();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Assignment failed: $e'), backgroundColor: AppTheme.danger),
-      );
+      _toast('Assignment failed: ${_errText(e)}', error: true);
     }
   }
 
-  Future<void> _quickAcknowledge(CivicReport report) async {
+  Future<void> _setStatus(CivicReport report, String status, String notes, String done) async {
     try {
-      await _api.updateReportStatus(report.id, {
-        'status': 'ACKNOWLEDGED',
-        'actor_name': 'Er. Rajesh V (Roads Officer)',
-        'actor_role': 'DEPARTMENT_OFFICER',
-        'notes': 'Officer verified coordinates and acknowledged ticket.',
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ticket ${report.publicId} acknowledged!'), backgroundColor: AppTheme.success),
-      );
+      await _api.updateReportStatus(report.id, status, notes: notes);
+      _toast('${report.publicId} $done');
       _loadData();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Status update failed: $e'), backgroundColor: AppTheme.danger),
-      );
+      _toast('Status update failed: ${_errText(e)}', error: true);
     }
+  }
+
+  Future<void> _reject(CivicReport report) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.bgCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+        title: Text('Reject ${report.publicId}?', style: GoogleFonts.outfit(fontWeight: FontWeight.w700, fontSize: 16)),
+        content: Text('Use this for invalid or spam reports. The citizen will see the rejection in the timeline.',
+            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger, foregroundColor: AppTheme.onAccent),
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _setStatus(report, 'REJECTED', 'Report rejected by department officer as invalid.', 'rejected');
   }
 
   @override
@@ -84,7 +106,7 @@ class _AuthorityDashboardScreenState extends State<AuthorityDashboardScreen> {
     final appState = Provider.of<AppState>(context, listen: false);
 
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: Colors.white));
+      return Center(child: CircularProgressIndicator(color: AppTheme.ink));
     }
 
     return SingleChildScrollView(
@@ -96,18 +118,22 @@ class _AuthorityDashboardScreenState extends State<AuthorityDashboardScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
+              Expanded(
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'Authority Command Center',
-                    style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white),
+                    style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.ink),
                   ),
-                  const Text(
-                    'Greater Chennai Corporation • Municipal Queue',
+                  Text(
+                    '${appState.userName} • Greater Chennai Corporation',
                     style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
+                ),
               ),
               OutlinedButton.icon(
                 onPressed: _loadData,
@@ -133,7 +159,7 @@ class _AuthorityDashboardScreenState extends State<AuthorityDashboardScreen> {
                   mainAxisSpacing: 8,
                   childAspectRatio: constraints.maxWidth < 650 ? 1.9 : 2.3,
                   children: [
-                    _buildKpiCard('TOTAL REPORTS', '${_analytics!.totalReports}', Colors.white, Icons.assignment_outlined),
+                    _buildKpiCard('TOTAL REPORTS', '${_analytics!.totalReports}', AppTheme.ink, Icons.assignment_outlined),
                     _buildKpiCard('IN PROGRESS', '${_analytics!.inProgress}', AppTheme.warning, Icons.pending_actions_outlined),
                     _buildKpiCard('OVERDUE SLA', '${_analytics!.overdueReports}', AppTheme.danger, Icons.alarm_off_outlined),
                     _buildKpiCard('COMPLIANCE', '${_analytics!.slaCompliancePct.toInt()}%', AppTheme.success, Icons.task_alt_outlined),
@@ -149,10 +175,12 @@ class _AuthorityDashboardScreenState extends State<AuthorityDashboardScreen> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                const Text('QUEUE:', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.textMuted)),
+                Text('QUEUE:', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.textMuted)),
                 const SizedBox(width: 8),
                 _buildFilter('ALL', 'All Reports'),
-                _buildFilter('SUBMITTED', 'New / Unassigned'),
+                _buildFilter('SUBMITTED,ROUTED', 'New'),
+                _buildFilter('ACKNOWLEDGED', 'Acknowledged'),
+                _buildFilter('REOPENED', 'Reopened'),
                 _buildFilter('ASSIGNED', 'Assigned'),
                 _buildFilter('IN_PROGRESS', 'In Progress'),
                 _buildFilter('RESOLUTION_SUBMITTED', 'Awaiting Verification'),
@@ -187,7 +215,7 @@ class _AuthorityDashboardScreenState extends State<AuthorityDashboardScreen> {
                       children: [
                         Text(
                           rep.publicId,
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white),
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.ink),
                         ),
                         StatusBadge(status: rep.status),
                       ],
@@ -197,14 +225,14 @@ class _AuthorityDashboardScreenState extends State<AuthorityDashboardScreen> {
                     // Title
                     Text(
                       rep.title,
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Colors.white),
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.ink),
                     ),
                     const SizedBox(height: 2),
 
                     // Address
                     Text(
                       '${rep.address ?? "Chennai"} • ${rep.wardName ?? "Ward 123"}',
-                      style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                      style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -213,7 +241,7 @@ class _AuthorityDashboardScreenState extends State<AuthorityDashboardScreen> {
                     // SLA status & assigned team
                     Row(
                       children: [
-                        const Icon(Icons.timer_outlined, size: 12, color: AppTheme.textMuted),
+                        Icon(Icons.timer_outlined, size: 12, color: AppTheme.textMuted),
                         const SizedBox(width: 4),
                         Text(
                           rep.slaInfo?.label ?? '${rep.slaHours}h SLA',
@@ -225,7 +253,7 @@ class _AuthorityDashboardScreenState extends State<AuthorityDashboardScreen> {
                         ),
                         if (rep.assignedTeam != null) ...[
                           const SizedBox(width: 8),
-                          Text('• ${rep.assignedTeam}', style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                          Text('• ${rep.assignedTeam}', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
                         ],
                       ],
                     ),
@@ -238,21 +266,31 @@ class _AuthorityDashboardScreenState extends State<AuthorityDashboardScreen> {
                       spacing: 8,
                       runSpacing: 6,
                       children: [
-                        if (rep.status == 'SUBMITTED' || rep.status == 'ROUTED')
+                        if (const {'ROUTED', 'REOPENED'}.contains(rep.status))
                           ElevatedButton.icon(
-                            onPressed: () => _quickAcknowledge(rep),
+                            onPressed: () => _setStatus(rep, 'ACKNOWLEDGED', 'Officer verified coordinates and acknowledged ticket.', 'acknowledged'),
                             icon: const Icon(Icons.check, size: 12),
                             label: const Text('Acknowledge', style: TextStyle(fontSize: 11)),
                             style: ElevatedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                             ),
                           ),
-                        if (rep.status == 'ACKNOWLEDGED' || rep.status == 'SUBMITTED' || rep.status == 'ROUTED')
+                        if (const {'ROUTED', 'ACKNOWLEDGED', 'REOPENED', 'ASSIGNED'}.contains(rep.status))
                           ElevatedButton.icon(
-                            onPressed: () => _quickAssign(rep),
+                            onPressed: () => _assign(rep),
                             icon: const Icon(Icons.person_add_alt_1, size: 12),
-                            label: const Text('Assign Team 4', style: TextStyle(fontSize: 11)),
+                            label: Text(rep.status == 'ASSIGNED' ? 'Reassign' : 'Assign Worker', style: const TextStyle(fontSize: 11)),
                             style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            ),
+                          ),
+                        if (const {'ROUTED', 'ACKNOWLEDGED'}.contains(rep.status))
+                          OutlinedButton.icon(
+                            onPressed: () => _reject(rep),
+                            icon: const Icon(Icons.block, size: 12),
+                            label: const Text('Reject', style: TextStyle(fontSize: 11)),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.danger,
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                             ),
                           ),
@@ -291,7 +329,7 @@ class _AuthorityDashboardScreenState extends State<AuthorityDashboardScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(label, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppTheme.textMuted)),
+              Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppTheme.textMuted)),
               Icon(icon, color: color, size: 14),
             ],
           ),
@@ -311,9 +349,9 @@ class _AuthorityDashboardScreenState extends State<AuthorityDashboardScreen> {
         selected: isSel,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
         backgroundColor: AppTheme.bgCard,
-        selectedColor: Colors.white,
+        selectedColor: AppTheme.ink,
         labelStyle: TextStyle(
-          color: isSel ? Colors.black : AppTheme.textSecondary,
+          color: isSel ? AppTheme.inkInverse : AppTheme.textSecondary,
           fontSize: 11,
           fontWeight: FontWeight.w600,
         ),
@@ -324,6 +362,65 @@ class _AuthorityDashboardScreenState extends State<AuthorityDashboardScreen> {
           }
         },
       ),
+    );
+  }
+}
+
+/// Lets the officer pick which field worker receives the work order.
+class _AssignWorkerDialog extends StatefulWidget {
+  final CivicReport report;
+  final ApiService api;
+
+  const _AssignWorkerDialog({required this.report, required this.api});
+
+  @override
+  State<_AssignWorkerDialog> createState() => _AssignWorkerDialogState();
+}
+
+class _AssignWorkerDialogState extends State<_AssignWorkerDialog> {
+  late final Future<List<StaffMember>> _workers = widget.api.getWorkers(role: 'FIELD_WORKER');
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: AppTheme.bgCard,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      title: Text('Assign ${widget.report.publicId}', style: GoogleFonts.outfit(fontWeight: FontWeight.w700, fontSize: 16)),
+      content: SizedBox(
+        width: 400,
+        child: FutureBuilder<List<StaffMember>>(
+          future: _workers,
+          builder: (context, snap) {
+            if (snap.connectionState != ConnectionState.done) {
+              return SizedBox(height: 80, child: Center(child: CircularProgressIndicator(color: AppTheme.ink)));
+            }
+            final workers = snap.data ?? [];
+            if (snap.hasError || workers.isEmpty) {
+              return Text('No field workers available.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary));
+            }
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: workers.map((w) {
+                final current = w.id == widget.report.assignedTo;
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.engineering_outlined, color: AppTheme.ink),
+                  title: Text(w.fullName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                  subtitle: Text(
+                    '${w.departmentName ?? 'Field team'} • ${w.activeJobs} active job${w.activeJobs == 1 ? '' : 's'}${current ? ' • current' : ''}',
+                    style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                  ),
+                  enabled: !current,
+                  onTap: () => Navigator.pop(context, w),
+                );
+              }).toList(),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+      ],
     );
   }
 }

@@ -12,11 +12,6 @@ def find_nearby_duplicates(
     Searches for non-resolved reports in the same category within category radius.
     """
     with get_db() as cur:
-        # Get category radius
-        cur.execute("SELECT duplicate_radius_meters FROM categories WHERE id = %s;", (category_id,))
-        cat = cur.fetchone()
-        radius = cat["duplicate_radius_meters"] if cat else 60
-
         query = """
             SELECT 
                 r.id,
@@ -40,10 +35,11 @@ def find_nearby_duplicates(
                 AND ST_DWithin(
                     r.location,
                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
-                    %s
+                    -- category-specific radius, looked up in the same round trip
+                    COALESCE((SELECT duplicate_radius_meters FROM categories WHERE id::text = %s), 60)
                 )
         """
-        params = [lng, lat, category_id, lng, lat, radius]
+        params = [lng, lat, category_id, lng, lat, category_id]
         if exclude_report_id:
             query += " AND r.id != %s"
             params.append(exclude_report_id)

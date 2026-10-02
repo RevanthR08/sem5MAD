@@ -16,7 +16,7 @@ class CustomHeader extends StatelessWidget implements PreferredSizeWidget {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppTheme.bgPrimary,
         border: Border(
           bottom: BorderSide(color: AppTheme.borderSubtle, width: 1),
@@ -27,7 +27,7 @@ class CustomHeader extends StatelessWidget implements PreferredSizeWidget {
           children: [
             // Brand Logo & Title
             InkWell(
-              onTap: () => appState.setActiveTab(0),
+              onTap: appState.goHome,
               borderRadius: BorderRadius.circular(4),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -36,10 +36,10 @@ class CustomHeader extends StatelessWidget implements PreferredSizeWidget {
                     width: 32,
                     height: 32,
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppTheme.ink,
                       borderRadius: BorderRadius.circular(4),
                     ),
-                    child: const Icon(Icons.location_city, color: Colors.black, size: 20),
+                    child: Icon(Icons.location_city, color: AppTheme.inkInverse, size: 20),
                   ),
                   const SizedBox(width: 8),
                   Text(
@@ -47,7 +47,7 @@ class CustomHeader extends StatelessWidget implements PreferredSizeWidget {
                     style: GoogleFonts.outfit(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
-                      color: Colors.white,
+                      color: AppTheme.ink,
                       letterSpacing: -0.5,
                     ),
                   ),
@@ -57,9 +57,9 @@ class CustomHeader extends StatelessWidget implements PreferredSizeWidget {
 
             const Spacer(),
 
-            // Role Badge with Dropdown / Switcher
+            // Role badge (fixed for the session; sign out to change role)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
                 color: AppTheme.bgCard,
                 borderRadius: BorderRadius.circular(4),
@@ -69,44 +69,20 @@ class CustomHeader extends StatelessWidget implements PreferredSizeWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    appState.isCitizen ? Icons.person : appState.isOfficer ? Icons.shield : Icons.construction,
+                    appState.isCitizen
+                        ? Icons.person
+                        : appState.isOfficer
+                            ? Icons.shield
+                            : appState.isAdmin
+                                ? Icons.admin_panel_settings
+                                : Icons.construction,
                     size: 14,
-                    color: Colors.white,
+                    color: AppTheme.ink,
                   ),
                   const SizedBox(width: 4),
-                  DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: appState.currentRole,
-                      dropdownColor: AppTheme.bgCard,
-                      isDense: true,
-                      icon: const Icon(Icons.arrow_drop_down, color: Colors.white, size: 16),
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'CITIZEN',
-                          child: Text('Citizen'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'OFFICER',
-                          child: Text('Officer'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'FIELD_WORKER',
-                          child: Text('Field Staff'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'ADMIN',
-                          child: Text('Admin'),
-                        ),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) appState.setRole(val);
-                      },
-                    ),
+                  Text(
+                    appState.roleLabel,
+                    style: GoogleFonts.plusJakartaSans(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.ink),
                   ),
                 ],
               ),
@@ -116,7 +92,7 @@ class CustomHeader extends StatelessWidget implements PreferredSizeWidget {
 
             // Logout / Switch User Button
             IconButton(
-              icon: const Icon(Icons.logout, size: 16, color: AppTheme.textSecondary),
+              icon: Icon(Icons.logout, size: 16, color: AppTheme.textSecondary),
               tooltip: 'Sign Out / Change User',
               style: IconButton.styleFrom(
                 padding: const EdgeInsets.all(6),

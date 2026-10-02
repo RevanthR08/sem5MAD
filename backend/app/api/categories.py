@@ -5,27 +5,21 @@ router = APIRouter(prefix="/categories", tags=["Categories"])
 
 @router.get("")
 def list_categories():
-    """Retrieve all civic issue categories with subcategories."""
+    """Retrieve all civic issue categories with subcategories (single query)."""
     with get_db() as cur:
         cur.execute("""
-            SELECT id, code, name, icon, description, default_sla_hours, duplicate_radius_meters
-            FROM categories
-            ORDER BY name ASC;
+            SELECT c.id, c.code, c.name, c.icon, c.description, c.default_sla_hours, c.duplicate_radius_meters,
+                   COALESCE(
+                       json_agg(
+                           json_build_object('id', s.id, 'code', s.code, 'name', s.name,
+                                             'sla_hours', s.sla_hours, 'priority_level', s.priority_level)
+                           ORDER BY s.name
+                       ) FILTER (WHERE s.id IS NOT NULL),
+                       '[]'
+                   ) AS subcategories
+            FROM categories c
+            LEFT JOIN subcategories s ON s.category_id = c.id
+            GROUP BY c.id
+            ORDER BY c.name ASC;
         """)
-        cats = cur.fetchall()
-        
-        result = []
-        for cat in cats:
-            cur.execute("""
-                SELECT id, code, name, sla_hours, priority_level
-                FROM subcategories
-                WHERE category_id = %s
-                ORDER BY name ASC;
-            """, (cat["id"],))
-            subs = cur.fetchall()
-            
-            c_dict = dict(cat)
-            c_dict["subcategories"] = [dict(s) for s in subs]
-            result.append(c_dict)
-            
-        return result
+        return [dict(row) for row in cur.fetchall()]

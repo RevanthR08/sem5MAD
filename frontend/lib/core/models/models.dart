@@ -109,6 +109,8 @@ class CivicReport {
   final String? wardName;
   final String? wardNumber;
   final String? assignedTeam;
+  final String? assignedTo;
+  final String? userId;
   final String? assignedOfficerName;
   final int slaHours;
   final SLAInfo? slaInfo;
@@ -143,6 +145,8 @@ class CivicReport {
     this.wardName,
     this.wardNumber,
     this.assignedTeam,
+    this.assignedTo,
+    this.userId,
     this.assignedOfficerName,
     this.slaHours = 48,
     this.slaInfo,
@@ -189,6 +193,8 @@ class CivicReport {
       wardName: json['ward_name'],
       wardNumber: json['ward_number'],
       assignedTeam: json['assigned_team'],
+      assignedTo: json['assigned_to'],
+      userId: json['user_id'],
       assignedOfficerName: json['assigned_officer_name'],
       slaHours: json['sla_hours'] ?? 48,
       slaInfo: sla,
@@ -204,6 +210,46 @@ class CivicReport {
       media: mList,
     );
   }
+
+  /// True while the report still needs work from the department.
+  bool get isOpen => !const {'RESOLVED', 'REJECTED', 'DUPLICATE'}.contains(status);
+
+  CivicReport copyWith({int? upvotes}) => CivicReport(
+        id: id,
+        publicId: publicId,
+        title: title,
+        description: description,
+        status: status,
+        priority: priority,
+        severity: severity,
+        latitude: latitude,
+        longitude: longitude,
+        address: address,
+        landmark: landmark,
+        categoryId: categoryId,
+        categoryName: categoryName,
+        categoryIcon: categoryIcon,
+        subcategoryName: subcategoryName,
+        departmentName: departmentName,
+        wardName: wardName,
+        wardNumber: wardNumber,
+        assignedTeam: assignedTeam,
+        assignedTo: assignedTo,
+        userId: userId,
+        assignedOfficerName: assignedOfficerName,
+        slaHours: slaHours,
+        slaInfo: slaInfo,
+        upvotes: upvotes ?? this.upvotes,
+        thumbnailUrl: thumbnailUrl,
+        resolutionBeforePhoto: resolutionBeforePhoto,
+        resolutionAfterPhoto: resolutionAfterPhoto,
+        resolutionNotes: resolutionNotes,
+        citizenVerified: citizenVerified,
+        citizenFeedback: citizenFeedback,
+        createdAt: createdAt,
+        timeline: timeline,
+        media: media,
+      );
 }
 
 class TimelineEvent {
@@ -295,6 +341,61 @@ class DuplicateReportItem {
       thumbnailUrl: json['thumbnail_url'],
       status: json['status'] ?? 'SUBMITTED',
       upvotes: json['upvotes'] ?? 1,
+    );
+  }
+}
+
+class StaffMember {
+  final String id;
+  final String fullName;
+  final String role;
+  final String? phone;
+  final String? departmentName;
+  final int activeJobs;
+
+  StaffMember({
+    required this.id,
+    required this.fullName,
+    required this.role,
+    this.phone,
+    this.departmentName,
+    required this.activeJobs,
+  });
+
+  factory StaffMember.fromJson(Map<String, dynamic> json) {
+    return StaffMember(
+      id: json['id'] ?? '',
+      fullName: json['full_name'] ?? '',
+      role: json['role'] ?? '',
+      phone: json['phone'],
+      departmentName: json['department_name'],
+      activeJobs: (json['active_jobs'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class Department {
+  final String id;
+  final String code;
+  final String name;
+  final String? headOfficerName;
+  final int activeTickets;
+
+  Department({
+    required this.id,
+    required this.code,
+    required this.name,
+    this.headOfficerName,
+    required this.activeTickets,
+  });
+
+  factory Department.fromJson(Map<String, dynamic> json) {
+    return Department(
+      id: json['id'] ?? '',
+      code: json['code'] ?? '',
+      name: json['name'] ?? '',
+      headOfficerName: json['head_officer_name'],
+      activeTickets: (json['active_tickets'] as num?)?.toInt() ?? 0,
     );
   }
 }

@@ -1,30 +1,48 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:civic_connect/main.dart';
+import 'package:civic_connect/core/providers/app_state.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const CivicConnectApp());
+  group('AppState role routing', () {
+    test('starts signed out', () {
+      expect(AppState().isAuthenticated, isFalse);
+    });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    test('each role lands on its own home and only sees its own tabs', () {
+      final expected = {
+        'CITIZEN': (AppTab.citizenHome, [AppTab.citizenHome, AppTab.map, AppTab.reportWizard, AppTab.profile]),
+        'OFFICER': (AppTab.authority, [AppTab.authority, AppTab.map, AppTab.profile]),
+        'FIELD_WORKER': (AppTab.fieldOps, [AppTab.fieldOps, AppTab.map, AppTab.profile]),
+        'ADMIN': (AppTab.admin, [AppTab.admin, AppTab.authority, AppTab.map, AppTab.profile]),
+      };
+      expected.forEach((role, value) {
+        final state = AppState()..login(userId: 'id-$role', name: 'Test', role: role);
+        expect(state.activeTabIndex, value.$1, reason: role);
+        expect(state.allowedTabs, value.$2, reason: role);
+        expect(state.userId, 'id-$role', reason: role);
+      });
+    });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    test('officer cannot open citizen-only screens', () {
+      final state = AppState()..login(userId: 'o1', name: 'Officer', role: 'OFFICER');
+      state.setActiveTab(AppTab.reportWizard);
+      expect(state.activeTabIndex, AppTab.authority);
+      state.startReportWithCategory(null);
+      expect(state.activeTabIndex, AppTab.authority);
+    });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    test('admin is distinct from officer', () {
+      final state = AppState()..login(userId: 'a1', name: 'Admin', role: 'ADMIN');
+      expect(state.isAdmin, isTrue);
+      expect(state.isOfficer, isFalse);
+      expect(state.isStaff, isTrue);
+    });
+
+    test('logout clears identity', () {
+      final state = AppState()..login(userId: 'c1', name: 'Citizen', role: 'CITIZEN');
+      state.logout();
+      expect(state.isAuthenticated, isFalse);
+      expect(state.userId, isNull);
+    });
   });
 }

@@ -6,17 +6,26 @@ ALLOWED_TRANSITIONS = {
     "SUBMITTED": ["VALIDATING", "ROUTED", "REJECTED", "DUPLICATE"],
     "VALIDATING": ["ROUTED", "REJECTED", "DUPLICATE"],
     "ROUTED": ["ACKNOWLEDGED", "ASSIGNED", "REJECTED", "DUPLICATE"],
-    "ACKNOWLEDGED": ["ASSIGNED", "IN_PROGRESS", "ROUTED"],
+    "ACKNOWLEDGED": ["ASSIGNED", "ROUTED", "REJECTED"],
     "ASSIGNED": ["IN_PROGRESS", "ASSIGNED", "ROUTED"],
     "IN_PROGRESS": ["RESOLUTION_SUBMITTED", "BLOCKED", "ASSIGNED"],
     "BLOCKED": ["IN_PROGRESS", "ASSIGNED"],
     "RESOLUTION_SUBMITTED": ["CITIZEN_VERIFICATION", "RESOLVED", "REOPENED"],
     "CITIZEN_VERIFICATION": ["RESOLVED", "REOPENED"],
     "RESOLVED": ["REOPENED"],
-    "REOPENED": ["ASSIGNED", "IN_PROGRESS", "ROUTED"],
+    "REOPENED": ["ACKNOWLEDGED", "ASSIGNED", "ROUTED"],
     "REJECTED": [],
     "DUPLICATE": []
 }
+
+
+class ReportNotFound(LookupError):
+    pass
+
+
+class InvalidTransition(ValueError):
+    pass
+
 
 def transition_report_status(
     report_id: str,
@@ -34,29 +43,34 @@ def transition_report_status(
 ) -> Dict[str, Any]:
     """Execute status transition, validate rules, and log immutable timeline entry."""
     with get_db() as cur:
-        # Fetch current report
-        cur.execute("SELECT status, public_id FROM reports WHERE id = %s;", (report_id,))
+        # Lock the row so two concurrent transitions cannot both pass validation
+        cur.execute("SELECT status, public_id FROM reports WHERE id::text = %s FOR UPDATE;", (report_id,))
         rep = cur.fetchone()
         if not rep:
-            raise ValueError(f"Report {report_id} not found.")
-            
+            raise ReportNotFound(f"Report {report_id} not found.")
+
         old_status = rep["status"]
-        allowed = ALLOWED_TRANSITIONS.get(old_status, [])
-        if new_status not in allowed and new_status != old_status:
-            # Relax slightly for demo/admin override
-            pass
-            
+        if new_status not in ALLOWED_TRANSITIONS.get(old_status, []):
+            raise InvalidTransition(f"Cannot move report from {old_status} to {new_status}.")
+
         now = datetime.now(timezone.utc)
-        resolved_at = now if new_status in ("RESOLVED", "RESOLUTION_SUBMITTED") else None
-        
-        # Build update query
         update_fields = ["status = %s", "updated_at = %s"]
         params = [new_status, now]
-        
-        if resolved_at and new_status == "RESOLVED":
+
+        # resolved_at marks when the repair was completed (stops the SLA clock);
+        # a reopen restarts it.
+        if new_status == "RESOLUTION_SUBMITTED":
             update_fields.append("resolved_at = %s")
-            params.append(resolved_at)
-            
+            params.append(now)
+        elif new_status == "RESOLVED":
+            update_fields.append("resolved_at = COALESCE(resolved_at, %s)")
+            params.append(now)
+            update_fields.append("closed_at = %s")
+            params.append(now)
+        elif new_status == "REOPENED":
+            update_fields.append("resolved_at = NULL")
+            update_fields.append("closed_at = NULL")
+
         if resolution_notes:
             update_fields.append("resolution_notes = %s")
             params.append(resolution_notes)
@@ -75,22 +89,22 @@ def transition_report_status(
         if department_id:
             update_fields.append("department_id = %s")
             params.append(department_id)
-            
+
         params.append(report_id)
-        sql = f"UPDATE reports SET {', '.join(update_fields)} WHERE id = %s RETURNING id, public_id, status;"
+        sql = f"UPDATE reports SET {', '.join(update_fields)} WHERE id::text = %s RETURNING id, public_id, status;"
         cur.execute(sql, tuple(params))
         updated = cur.fetchone()
-        
+
         # Log to immutable timeline
-        event_type = f"STATUS_{new_status}"
         cur.execute("""
             INSERT INTO report_timeline (
                 report_id, actor_id, actor_name, actor_role,
                 event_type, old_status, new_status, notes, media_url
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
         """, (
-            report_id, actor_id, actor_name, actor_role,
-            event_type, old_status, new_status, notes or f"Status updated to {new_status}", after_photo or before_photo
+            updated["id"], actor_id, actor_name, actor_role,
+            f"STATUS_{new_status}", old_status, new_status,
+            notes or f"Status updated to {new_status}", after_photo or before_photo
         ))
-        
+
         return dict(updated)

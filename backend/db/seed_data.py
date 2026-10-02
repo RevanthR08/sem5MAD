@@ -12,6 +12,16 @@ load_dotenv()
 
 DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres")
 
+# Shared password for the four seeded demo accounts (shown on the sign-in screen)
+DEMO_PASSWORD = "CivicPass2026!"
+DEMO_USER_IDS = [f"10000000-0000-0000-0000-00000000000{i}" for i in range(1, 5)]
+
+
+def set_demo_passwords(cur):
+    from backend.app.core.security import hash_password
+    for user_id in DEMO_USER_IDS:
+        cur.execute("UPDATE users SET password_hash = %s WHERE id = %s;", (hash_password(DEMO_PASSWORD), user_id))
+
 def seed():
     conn = psycopg2.connect(DB_URL)
     cur = conn.cursor()
@@ -68,6 +78,7 @@ def seed():
         ('10000000-0000-0000-0000-000000000003', 'worker.roads@gcc.gov.in', '+919840998877', 'Murugan S (Road Team 4)', 'FIELD_WORKER', 'd0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000123', 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150'),
         ('10000000-0000-0000-0000-000000000004', 'admin.gcc@chennaicorporation.gov.in', '+919840001122', 'Commissioner Admin', 'SUPER_ADMIN', NULL, 'a0000000-0000-0000-0000-000000000001', NULL, 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150');
     """)
+    set_demo_passwords(cur)
 
     # 6. Categories & Subcategories
     categories_data = [
@@ -164,7 +175,7 @@ def seed():
             "sla_deadline": now + timedelta(hours=8),
             "media": [
                 ("PHOTO", "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?w=800", "Deep road pothole near bus stop", "SUBMISSION"),
-                ("PHOTO", "https://images.unsplash.com/photo-1541888946425-d0fbb186156f?w=800", "Team 4 asphalt patch compaction", "BEFORE_WORK")
+                ("PHOTO", "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=800", "Team 4 asphalt patch compaction", "BEFORE_WORK")
             ],
             "timeline": [
                 ("REPORT_CREATED", "Report submitted by citizen via Mobile Web", "SUBMITTED", None),
@@ -191,6 +202,7 @@ def seed():
             "ward_id": "c0000000-0000-0000-0000-000000000123",
             "zone_id": "b0000000-0000-0000-0000-000000000009",
             "department_id": "d0000000-0000-0000-0000-000000000002",
+            "assigned_to": "10000000-0000-0000-0000-000000000003",
             "assigned_team": "Sanitation Compactor Truck Unit 2",
             "sla_hours": 12,
             "sla_deadline": now + timedelta(hours=4),
@@ -223,7 +235,7 @@ def seed():
             "sla_hours": 4,
             "sla_deadline": now + timedelta(hours=2),
             "media": [
-                ("PHOTO", "https://images.unsplash.com/photo-1541888946425-d0fbb186156f?w=800", "Missing manhole cover on footpath", "SUBMISSION")
+                ("PHOTO", "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=800", "Missing manhole cover on footpath", "SUBMISSION")
             ],
             "timeline": [
                 ("REPORT_CREATED", "Emergency high-severity report created", "SUBMITTED", None),
@@ -247,9 +259,11 @@ def seed():
             "ward_id": "c0000000-0000-0000-0000-000000000124",
             "zone_id": "b0000000-0000-0000-0000-000000000009",
             "department_id": "d0000000-0000-0000-0000-000000000004",
+            "assigned_to": "10000000-0000-0000-0000-000000000003",
             "assigned_team": "Electrical Lighting Squad 1",
             "sla_hours": 48,
             "sla_deadline": now + timedelta(hours=30),
+            "resolved_at": now - timedelta(hours=2),
             "resolution_notes": "Replaced blown 120W LED fixture, repaired damaged insulated underground junction box, and restored illumination testing at 230V.",
             "resolution_before_photo": "https://images.unsplash.com/photo-1509114397022-ed747cca3f65?w=800",
             "resolution_after_photo": "https://images.unsplash.com/photo-1517816743773-6e0fd518b4a6?w=800",
